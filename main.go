@@ -20,6 +20,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Configure log level
+	if cfg.Debug {
+		slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	}
+
 	// Start OAuth server in background if client ID is configured
 	if cfg.DiscordClientID != "" {
 		go RunOAuthServer(cfg.DiscordClientID, cfg.OAuthPort)

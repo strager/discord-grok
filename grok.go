@@ -5,12 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 )
 
 const (
 	xaiAPIURL = "https://api.x.ai/v1/chat/completions"
-	xaiModel  = "grok-2-vision-1212"
+	xaiModel  = "grok-4-1-fast-reasoning"
 )
 
 type GrokClient struct {
@@ -54,9 +55,7 @@ type chatResponse struct {
 			Content string `json:"content"`
 		} `json:"message"`
 	} `json:"choices"`
-	Error *struct {
-		Message string `json:"message"`
-	} `json:"error,omitempty"`
+	Error *string `json:"error,omitempty"`
 }
 
 // SendMessage sends messages to the Grok API and returns the response
@@ -70,6 +69,8 @@ func (c *GrokClient) SendMessage(messages []ChatMessage) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal request: %w", err)
 	}
+
+	slog.Debug("sending request to Grok API", "body", string(jsonBody))
 
 	req, err := http.NewRequest("POST", xaiAPIURL, bytes.NewReader(jsonBody))
 	if err != nil {
@@ -90,16 +91,21 @@ func (c *GrokClient) SendMessage(messages []ChatMessage) (string, error) {
 		return "", fmt.Errorf("failed to read response: %w", err)
 	}
 
+	slog.Debug("received response from Grok API", "status", resp.StatusCode, "body", string(body))
+
 	var chatResp chatResponse
 	if err := json.Unmarshal(body, &chatResp); err != nil {
+		slog.Error("failed to unmarshal response", "body", string(body), "error", err)
 		return "", fmt.Errorf("failed to unmarshal response: %w", err)
 	}
 
 	if chatResp.Error != nil {
-		return "", fmt.Errorf("API error: %s", chatResp.Error.Message)
+		slog.Error("API returned error", "body", string(body))
+		return "", fmt.Errorf("API error: %s", *chatResp.Error)
 	}
 
 	if len(chatResp.Choices) == 0 {
+		slog.Error("no choices in API response", "body", string(body))
 		return "", fmt.Errorf("no response from API")
 	}
 

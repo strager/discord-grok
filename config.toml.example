@@ -10,8 +10,11 @@ xai_api_key = "YOUR_XAI_API_KEY"
 # Number of messages to include as context
 context_messages = 20
 
-# Port for OAuth invite server (used with -invite flag)
+# Port for OAuth invite server
 oauth_port = 8080
+
+# Enable debug logging
+debug = false
 
 [rate_limit]
 # Max requests per user per minute

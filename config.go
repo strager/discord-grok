@@ -14,6 +14,7 @@ type Config struct {
 	OAuthPort       int             `toml:"oauth_port"`
 	XAIAPIKey       string          `toml:"xai_api_key"`
 	ContextMessages int             `toml:"context_messages"`
+	Debug           bool            `toml:"debug"`
 	RateLimit       RateLimitConfig `toml:"rate_limit"`
 }
 

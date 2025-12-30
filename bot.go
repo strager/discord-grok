@@ -84,6 +84,8 @@ func (b *Bot) onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) 
 	// Convert to Grok messages
 	grokMessages := b.contextBuilder.ToGrokMessages(contextMessages)
 
+	slog.Debug("calling Grok API", "contextMessages", len(contextMessages), "grokMessages", len(grokMessages))
+
 	// Call Grok API
 	response, err := b.grokClient.SendMessage(grokMessages)
 	if err != nil {
