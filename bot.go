@@ -2,6 +2,7 @@ package main
 
 import (
 	"log/slog"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -72,6 +73,25 @@ func (b *Bot) onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) 
 		b.replyWithError(m, "You're sending messages too fast. Please wait a moment.")
 		return
 	}
+
+	// Start typing indicator that refreshes every 5 seconds
+	done := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				s.ChannelTyping(m.ChannelID)
+			}
+		}
+	}()
+	defer close(done)
+
+	// Initial typing indicator
+	s.ChannelTyping(m.ChannelID)
 
 	// Build context
 	contextMessages, err := b.contextBuilder.BuildContext(m.ChannelID, m.Message, b.contextLimit)
