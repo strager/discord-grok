@@ -101,10 +101,14 @@ func (b *Bot) onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) 
 		return
 	}
 
-	// Convert to Grok messages
-	grokMessages := b.contextBuilder.ToGrokMessages(contextMessages)
+	// Convert to XML prompt format
+	systemPrompt, userContent := b.contextBuilder.ToXMLPrompt(contextMessages, m.ID)
+	grokMessages := []ChatMessage{
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: userContent},
+	}
 
-	slog.Debug("calling Grok API", "contextMessages", len(contextMessages), "grokMessages", len(grokMessages))
+	slog.Debug("calling Grok API", "contextMessages", len(contextMessages))
 
 	// Call Grok API
 	response, err := b.grokClient.SendMessage(grokMessages)

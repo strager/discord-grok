@@ -2,6 +2,7 @@ package main
 
 import (
 	"sort"
+	"strings"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -21,12 +22,13 @@ func NewContextBuilder(session *discordgo.Session, botID string) *ContextBuilder
 
 // ContextMessage represents a message with its metadata for context
 type ContextMessage struct {
-	ID        string
-	AuthorID  string
-	Author    string
-	Content   string
-	Timestamp int64
-	Images    []string // attachment URLs
+	ID            string
+	AuthorID      string
+	Author        string
+	Content       string
+	Timestamp     int64
+	Images        []string // attachment URLs
+	ReplyToAuthor string   // username of the message being replied to (empty if not a reply)
 }
 
 // BuildContext fetches message context for a given message
@@ -113,13 +115,19 @@ func (cb *ContextBuilder) toContextMessage(msg *discordgo.Message) ContextMessag
 		}
 	}
 
+	var replyToAuthor string
+	if msg.ReferencedMessage != nil && msg.ReferencedMessage.Author != nil {
+		replyToAuthor = msg.ReferencedMessage.Author.Username
+	}
+
 	return ContextMessage{
-		ID:        msg.ID,
-		AuthorID:  msg.Author.ID,
-		Author:    msg.Author.Username,
-		Content:   msg.Content,
-		Timestamp: msg.Timestamp.Unix(),
-		Images:    images,
+		ID:            msg.ID,
+		AuthorID:      msg.Author.ID,
+		Author:        msg.Author.Username,
+		Content:       msg.Content,
+		Timestamp:     msg.Timestamp.Unix(),
+		Images:        images,
+		ReplyToAuthor: replyToAuthor,
 	}
 }
 
@@ -131,45 +139,102 @@ func isImageURL(contentType string) bool {
 	return false
 }
 
-// ToGrokMessages converts context messages to Grok API format
-func (cb *ContextBuilder) ToGrokMessages(messages []ContextMessage) []ChatMessage {
-	var result []ChatMessage
+const systemPrompt = "You are Grok, a Discord bot. A Discord user is writing a message to you. Please respond. Message context is provided below."
 
-	for _, msg := range messages {
-		role := "user"
-		if msg.AuthorID == cb.botID {
-			role = "assistant"
-		}
+// ToXMLPrompt converts context messages to the XML prompt format
+// triggerMsgID identifies which message triggered the bot (should respond to this one)
+// Returns system prompt and user message content (as []ContentPart to support images)
+func (cb *ContextBuilder) ToXMLPrompt(messages []ContextMessage, triggerMsgID string) (string, []ContentPart) {
+	var triggerMsg *ContextMessage
+	var contextMsgs []ContextMessage
 
-		// Only prefix user messages with username, not assistant messages
-		content := msg.Content
-		if role == "user" {
-			content = msg.Author + ": " + msg.Content
-		}
-
-		// Build content - either simple string or multi-part with images
-		if len(msg.Images) == 0 {
-			result = append(result, ChatMessage{
-				Role:    role,
-				Content: content,
-			})
+	// Separate trigger message from context
+	for i := range messages {
+		if messages[i].ID == triggerMsgID {
+			triggerMsg = &messages[i]
 		} else {
-			// Multi-part content with images
-			parts := []ContentPart{
-				{Type: "text", Text: content},
-			}
-			for _, imgURL := range msg.Images {
-				parts = append(parts, ContentPart{
-					Type:     "image_url",
-					ImageURL: &ImageURL{URL: imgURL},
-				})
-			}
-			result = append(result, ChatMessage{
-				Role:    role,
-				Content: parts,
+			contextMsgs = append(contextMsgs, messages[i])
+		}
+	}
+
+	// Build the XML prompt text
+	var sb strings.Builder
+
+	// Add trigger message first
+	if triggerMsg != nil {
+		sb.WriteString(formatMessageXML(*triggerMsg))
+		sb.WriteString("\n\n")
+	}
+
+	// Add context block
+	if len(contextMsgs) > 0 {
+		sb.WriteString("<context>\n")
+		for _, msg := range contextMsgs {
+			sb.WriteString(formatMessageXML(msg))
+			sb.WriteString("\n")
+		}
+		sb.WriteString("</context>")
+	}
+
+	// Build content parts: text first, then all images
+	parts := []ContentPart{
+		{Type: "text", Text: sb.String()},
+	}
+
+	// Collect all images from all messages
+	for _, msg := range messages {
+		for _, imgURL := range msg.Images {
+			parts = append(parts, ContentPart{
+				Type:     "image_url",
+				ImageURL: &ImageURL{URL: imgURL},
 			})
 		}
 	}
 
-	return result
+	return systemPrompt, parts
+}
+
+// formatMessageXML formats a single message as XML
+func formatMessageXML(msg ContextMessage) string {
+	var sb strings.Builder
+	sb.WriteString("<message author=\"")
+	sb.WriteString(escapeXMLAttr(msg.Author))
+	sb.WriteString("\"")
+
+	if msg.ReplyToAuthor != "" {
+		sb.WriteString(" replyto=\"")
+		sb.WriteString(escapeXMLAttr(msg.ReplyToAuthor))
+		sb.WriteString("\"")
+	}
+
+	sb.WriteString(">")
+	sb.WriteString(escapeXMLContent(msg.Content))
+
+	// Add image tags so the model knows which message contains which image
+	for _, imgURL := range msg.Images {
+		sb.WriteString(" <img src=\"")
+		sb.WriteString(escapeXMLAttr(imgURL))
+		sb.WriteString("\">")
+	}
+
+	sb.WriteString("</message>")
+
+	return sb.String()
+}
+
+// escapeXMLAttr escapes special characters for XML attributes
+func escapeXMLAttr(s string) string {
+	s = strings.ReplaceAll(s, "&", "&amp;")
+	s = strings.ReplaceAll(s, "<", "&lt;")
+	s = strings.ReplaceAll(s, ">", "&gt;")
+	s = strings.ReplaceAll(s, "\"", "&quot;")
+	return s
+}
+
+// escapeXMLContent escapes special characters for XML content
+func escapeXMLContent(s string) string {
+	s = strings.ReplaceAll(s, "&", "&amp;")
+	s = strings.ReplaceAll(s, "<", "&lt;")
+	s = strings.ReplaceAll(s, ">", "&gt;")
+	return s
 }
