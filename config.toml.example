@@ -1,6 +1,18 @@
+# Discord bot token (from Developer Portal > Bot > Token)
 discord_token = "YOUR_DISCORD_BOT_TOKEN"
+
+# Discord application client ID (from Developer Portal > General Information)
+discord_client_id = "YOUR_CLIENT_ID"
+
+# xAI API key (from x.ai)
 xai_api_key = "YOUR_XAI_API_KEY"
+
+# Number of messages to include as context
 context_messages = 20
 
+# Port for OAuth invite server (used with -invite flag)
+oauth_port = 8080
+
 [rate_limit]
+# Max requests per user per minute
 requests_per_minute = 10

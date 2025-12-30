@@ -10,6 +10,8 @@ type RateLimitConfig struct {
 
 type Config struct {
 	DiscordToken    string          `toml:"discord_token"`
+	DiscordClientID string          `toml:"discord_client_id"`
+	OAuthPort       int             `toml:"oauth_port"`
 	XAIAPIKey       string          `toml:"xai_api_key"`
 	ContextMessages int             `toml:"context_messages"`
 	RateLimit       RateLimitConfig `toml:"rate_limit"`
@@ -25,6 +27,9 @@ func LoadConfig(path string) (*Config, error) {
 	}
 	if cfg.RateLimit.RequestsPerMinute == 0 {
 		cfg.RateLimit.RequestsPerMinute = 10
+	}
+	if cfg.OAuthPort == 0 {
+		cfg.OAuthPort = 8080
 	}
 	return &cfg, nil
 }

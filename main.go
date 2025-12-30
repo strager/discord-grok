@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -17,6 +18,12 @@ func main() {
 	if err != nil {
 		slog.Error("failed to load config", "error", err)
 		os.Exit(1)
+	}
+
+	// Start OAuth server in background if client ID is configured
+	if cfg.DiscordClientID != "" {
+		go RunOAuthServer(cfg.DiscordClientID, cfg.OAuthPort)
+		slog.Info("invite URL", "url", fmt.Sprintf("http://localhost:%d/invite", cfg.OAuthPort))
 	}
 
 	// Initialize components
