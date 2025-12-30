@@ -1,0 +1,6 @@
+discord_token = "YOUR_DISCORD_BOT_TOKEN"
+xai_api_key = "YOUR_XAI_API_KEY"
+context_messages = 20
+
+[rate_limit]
+requests_per_minute = 10
