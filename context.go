@@ -141,16 +141,22 @@ func (cb *ContextBuilder) ToGrokMessages(messages []ContextMessage) []ChatMessag
 			role = "assistant"
 		}
 
+		// Only prefix user messages with username, not assistant messages
+		content := msg.Content
+		if role == "user" {
+			content = msg.Author + ": " + msg.Content
+		}
+
 		// Build content - either simple string or multi-part with images
 		if len(msg.Images) == 0 {
 			result = append(result, ChatMessage{
 				Role:    role,
-				Content: msg.Author + ": " + msg.Content,
+				Content: content,
 			})
 		} else {
 			// Multi-part content with images
 			parts := []ContentPart{
-				{Type: "text", Text: msg.Author + ": " + msg.Content},
+				{Type: "text", Text: content},
 			}
 			for _, imgURL := range msg.Images {
 				parts = append(parts, ContentPart{

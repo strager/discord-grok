@@ -1,0 +1,64 @@
+---
+- name: Deploy discord-grok bot
+  hosts: discord_grok
+
+  tasks:
+    - name: Build binary locally
+      ansible.builtin.command:
+        cmd: go build -o deploy/discord-grok
+        chdir: "{{ playbook_dir }}/.."
+      environment:
+        GOOS: linux
+        GOARCH: amd64
+      delegate_to: localhost
+      become: false
+
+    - name: Create discord-grok user
+      ansible.builtin.user:
+        name: discord-grok
+        system: true
+        create_home: true
+        shell: /usr/sbin/nologin
+      become: true
+
+    - name: Copy binary
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/discord-grok"
+        dest: /home/discord-grok/discord-grok
+        mode: "0755"
+      become: true
+      become_user: discord-grok
+      notify: Restart discord-grok
+
+    - name: Deploy config.toml
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../config.toml"
+        dest: /home/discord-grok/config.toml
+        mode: "0600"
+      become: true
+      become_user: discord-grok
+      notify: Restart discord-grok
+
+    - name: Install systemd service
+      ansible.builtin.template:
+        src: discord-grok.service.j2
+        dest: /etc/systemd/system/discord-grok.service
+        mode: "0644"
+      become: true
+      notify: Restart discord-grok
+
+    - name: Enable and start discord-grok service
+      ansible.builtin.systemd:
+        name: discord-grok
+        enabled: true
+        state: started
+        daemon_reload: true
+      become: true
+
+  handlers:
+    - name: Restart discord-grok
+      ansible.builtin.systemd:
+        name: discord-grok
+        state: restarted
+        daemon_reload: true
+      become: true

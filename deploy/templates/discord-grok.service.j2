@@ -1,0 +1,14 @@
+[Unit]
+Description=Discord Grok Bot
+After=network.target
+
+[Service]
+Type=simple
+User=discord-grok
+WorkingDirectory=/home/discord-grok
+ExecStart=/home/discord-grok/discord-grok
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
