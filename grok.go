@@ -45,8 +45,9 @@ type ContentPart struct {
 }
 
 type chatRequest struct {
-	Model    string        `json:"model"`
-	Messages []ChatMessage `json:"messages"`
+	Model     string        `json:"model"`
+	Messages  []ChatMessage `json:"messages"`
+	MaxTokens int           `json:"max_tokens,omitempty"`
 }
 
 type chatResponse struct {
@@ -58,11 +59,17 @@ type chatResponse struct {
 	Error *string `json:"error,omitempty"`
 }
 
+// SendOptions configures the Grok API request
+type SendOptions struct {
+	MaxTokens int
+}
+
 // SendMessage sends messages to the Grok API and returns the response
-func (c *GrokClient) SendMessage(messages []ChatMessage) (string, error) {
+func (c *GrokClient) SendMessage(messages []ChatMessage, opts SendOptions) (string, error) {
 	reqBody := chatRequest{
-		Model:    xaiModel,
-		Messages: messages,
+		Model:     xaiModel,
+		Messages:  messages,
+		MaxTokens: opts.MaxTokens,
 	}
 
 	jsonBody, err := json.Marshal(reqBody)

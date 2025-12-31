@@ -7,6 +7,12 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
+const (
+	maxResponseBytes = 2000
+	bytesPerToken    = 4
+	truncateSuffix   = "[Message truncated]"
+)
+
 type Bot struct {
 	session        *discordgo.Session
 	grokClient     *GrokClient
@@ -110,12 +116,31 @@ func (b *Bot) onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) 
 
 	slog.Debug("calling Grok API", "contextMessages", len(contextMessages))
 
-	// Call Grok API
-	response, err := b.grokClient.SendMessage(grokMessages)
+	// Call Grok API with token limit
+	maxTokens := maxResponseBytes / bytesPerToken
+	opts := SendOptions{MaxTokens: maxTokens}
+	response, err := b.grokClient.SendMessage(grokMessages, opts)
 	if err != nil {
 		slog.Error("failed to call Grok API", "error", err)
 		b.replyWithError(m, "Sorry, I couldn't process that request. Please try again.")
 		return
+	}
+
+	// Retry once if response exceeds byte limit
+	if len(response) > maxResponseBytes {
+		slog.Debug("response exceeded byte limit, retrying", "bytes", len(response))
+		response, err = b.grokClient.SendMessage(grokMessages, opts)
+		if err != nil {
+			slog.Error("failed to call Grok API on retry", "error", err)
+			b.replyWithError(m, "Sorry, I couldn't process that request. Please try again.")
+			return
+		}
+	}
+
+	// Truncate if still over limit
+	if len(response) > maxResponseBytes {
+		slog.Debug("response still exceeded byte limit after retry, truncating", "bytes", len(response))
+		response = truncateToByteLimit(response, maxResponseBytes, truncateSuffix)
 	}
 
 	// Reply to the message
@@ -139,4 +164,32 @@ func (b *Bot) replyWithError(m *discordgo.MessageCreate, errMsg string) {
 	if err != nil {
 		slog.Error("failed to send error reply", "error", err)
 	}
+}
+
+// truncateToByteLimit truncates a string to fit within the byte limit,
+// ensuring we don't cut in the middle of a UTF-8 character.
+// The suffix is appended if truncation occurs.
+func truncateToByteLimit(s string, limit int, suffix string) string {
+	if len(s) <= limit {
+		return s
+	}
+
+	// Reserve space for suffix
+	targetLen := limit - len(suffix)
+	if targetLen <= 0 {
+		return suffix[:limit]
+	}
+
+	// Find the last valid UTF-8 boundary within targetLen
+	truncated := s[:targetLen]
+	// Ensure we don't cut in the middle of a multi-byte UTF-8 character
+	for len(truncated) > 0 && truncated[len(truncated)-1]&0xC0 == 0x80 {
+		truncated = truncated[:len(truncated)-1]
+	}
+	// If we stopped at a start byte of a multi-byte sequence, remove it too
+	if len(truncated) > 0 && truncated[len(truncated)-1]&0x80 != 0 {
+		truncated = truncated[:len(truncated)-1]
+	}
+
+	return truncated + suffix
 }
