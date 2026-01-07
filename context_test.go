@@ -3,6 +3,7 @@ package main
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -15,7 +16,7 @@ func TestToXMLPrompt_SingleTriggerOnly(t *testing.T) {
 
 	sysPrompt, parts := cb.ToXMLPrompt(messages, "msg1")
 
-	if sysPrompt != systemPrompt {
+	if !strings.Contains(sysPrompt, "You are Grok") {
 		t.Errorf("unexpected system prompt: %s", sysPrompt)
 	}
 
@@ -318,4 +319,18 @@ func TestToXMLPrompt_ReplyToUsesDisplayName(t *testing.T) {
 			t.Errorf("replyto attribute should use username as fallback: %s", text)
 		}
 	})
+}
+
+func TestGetSystemPrompt_ContainsCurrentDate(t *testing.T) {
+	// Note: This test does not handle the edge case of time changing during the test run.
+	expectedDate := time.Now().Format("January 2, 2006 (MST)")
+	sysPrompt := getSystemPrompt()
+
+	if !strings.Contains(sysPrompt, "Current date:") {
+		t.Error("system prompt should contain 'Current date:'")
+	}
+
+	if !strings.Contains(sysPrompt, expectedDate) {
+		t.Errorf("system prompt should contain current date %q, got: %s", expectedDate, sysPrompt)
+	}
 }
