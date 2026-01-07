@@ -119,23 +119,19 @@ func (cb *ContextBuilder) toContextMessage(msg *discordgo.Message) ContextMessag
 
 	var replyToAuthor string
 	if msg.ReferencedMessage != nil && msg.ReferencedMessage.Author != nil {
-		replyToAuthor = msg.ReferencedMessage.Author.Username
+		replyToAuthor = getDisplayName(msg.ReferencedMessage.Author)
 	}
 
 	// Build mentions map from Discord's parsed Mentions array
 	mentions := make(map[string]string)
 	for _, user := range msg.Mentions {
-		displayName := user.GlobalName
-		if displayName == "" {
-			displayName = user.Username
-		}
-		mentions[user.ID] = displayName
+		mentions[user.ID] = getDisplayName(user)
 	}
 
 	return ContextMessage{
 		ID:            msg.ID,
 		AuthorID:      msg.Author.ID,
-		Author:        msg.Author.Username,
+		Author:        getDisplayName(msg.Author),
 		Content:       msg.Content,
 		Timestamp:     msg.Timestamp.Unix(),
 		Images:        images,
@@ -150,6 +146,15 @@ func isImageURL(contentType string) bool {
 		return true
 	}
 	return false
+}
+
+// getDisplayName returns the user's display name (GlobalName) if set,
+// otherwise falls back to their username.
+func getDisplayName(user *discordgo.User) string {
+	if user.GlobalName != "" {
+		return user.GlobalName
+	}
+	return user.Username
 }
 
 const systemPrompt = `You are Grok, a Discord bot created by strager (this server's admin and owner).

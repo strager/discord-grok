@@ -3,6 +3,8 @@ package main
 import (
 	"strings"
 	"testing"
+
+	"github.com/bwmarrin/discordgo"
 )
 
 func TestToXMLPrompt_SingleTriggerOnly(t *testing.T) {
@@ -226,4 +228,90 @@ func TestToXMLPrompt_WithMentions(t *testing.T) {
 	if strings.Contains(text, "<@111222333>") || strings.Contains(text, "&lt;@111222333&gt;") {
 		t.Errorf("raw mention ID should not appear in output: %s", text)
 	}
+}
+
+func TestGetDisplayName(t *testing.T) {
+	tests := []struct {
+		name       string
+		user       *discordgo.User
+		wantResult string
+	}{
+		{
+			name:       "uses GlobalName when set",
+			user:       &discordgo.User{Username: "alice123", GlobalName: "Alice"},
+			wantResult: "Alice",
+		},
+		{
+			name:       "falls back to Username when GlobalName is empty",
+			user:       &discordgo.User{Username: "bob456", GlobalName: ""},
+			wantResult: "bob456",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := getDisplayName(tt.user)
+			if got != tt.wantResult {
+				t.Errorf("getDisplayName() = %q, want %q", got, tt.wantResult)
+			}
+		})
+	}
+}
+
+func TestToXMLPrompt_AuthorUsesDisplayName(t *testing.T) {
+	cb := &ContextBuilder{botID: "bot123"}
+
+	t.Run("author with display name", func(t *testing.T) {
+		messages := []ContextMessage{
+			{ID: "msg1", Author: "Cool Display Name", Content: "hello"},
+		}
+		_, parts := cb.ToXMLPrompt(messages, "msg1")
+		text := parts[0].Text
+
+		if !strings.Contains(text, `author="Cool Display Name"`) {
+			t.Errorf("author attribute should use display name: %s", text)
+		}
+	})
+
+	t.Run("author with username fallback", func(t *testing.T) {
+		messages := []ContextMessage{
+			{ID: "msg1", Author: "username123", Content: "hello"},
+		}
+		_, parts := cb.ToXMLPrompt(messages, "msg1")
+		text := parts[0].Text
+
+		if !strings.Contains(text, `author="username123"`) {
+			t.Errorf("author attribute should use username as fallback: %s", text)
+		}
+	})
+}
+
+func TestToXMLPrompt_ReplyToUsesDisplayName(t *testing.T) {
+	cb := &ContextBuilder{botID: "bot123"}
+
+	t.Run("replyto with display name", func(t *testing.T) {
+		messages := []ContextMessage{
+			{ID: "msg1", Author: "alice", Content: "original message"},
+			{ID: "msg2", Author: "bob", Content: "reply", ReplyToAuthor: "Alice Display Name"},
+		}
+		_, parts := cb.ToXMLPrompt(messages, "msg2")
+		text := parts[0].Text
+
+		if !strings.Contains(text, `replyto="Alice Display Name"`) {
+			t.Errorf("replyto attribute should use display name: %s", text)
+		}
+	})
+
+	t.Run("replyto with username fallback", func(t *testing.T) {
+		messages := []ContextMessage{
+			{ID: "msg1", Author: "alice", Content: "original message"},
+			{ID: "msg2", Author: "bob", Content: "reply", ReplyToAuthor: "alice_username"},
+		}
+		_, parts := cb.ToXMLPrompt(messages, "msg2")
+		text := parts[0].Text
+
+		if !strings.Contains(text, `replyto="alice_username"`) {
+			t.Errorf("replyto attribute should use username as fallback: %s", text)
+		}
+	})
 }
