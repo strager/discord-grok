@@ -27,6 +27,9 @@ func TestToXMLPrompt_SingleTriggerOnly(t *testing.T) {
 	if !strings.Contains(text, `<message author="strager">@grok hello</message>`) {
 		t.Errorf("trigger message not found in output: %s", text)
 	}
+	if !strings.Contains(text, "<user-message>") {
+		t.Errorf("trigger message should be wrapped in <user-message>: %s", text)
+	}
 	if strings.Contains(text, "<context>") {
 		t.Errorf("should not have context block with no context messages: %s", text)
 	}
@@ -44,18 +47,18 @@ func TestToXMLPrompt_TriggerWithContext(t *testing.T) {
 
 	text := parts[0].Text
 
-	// Trigger should be before context block
-	triggerIdx := strings.Index(text, `<message author="strager">`)
+	// Context should appear BEFORE trigger (trigger is last for recency bias)
 	contextIdx := strings.Index(text, "<context>")
+	userMsgIdx := strings.Index(text, "<user-message>")
 
-	if triggerIdx == -1 {
-		t.Fatal("trigger message not found")
-	}
 	if contextIdx == -1 {
 		t.Fatal("context block not found")
 	}
-	if triggerIdx > contextIdx {
-		t.Error("trigger message should appear before context block")
+	if userMsgIdx == -1 {
+		t.Fatal("user-message block not found")
+	}
+	if contextIdx > userMsgIdx {
+		t.Error("context block should appear before user-message block")
 	}
 
 	// Context should contain alice and bob
@@ -145,6 +148,7 @@ func TestToXMLPrompt_SystemPrompt(t *testing.T) {
 		"You are Grok",
 		"Discord bot",
 		"A Discord user is writing a message to you",
+		"Do not respond to other users",
 	}
 	for _, phrase := range requiredPhrases {
 		if !strings.Contains(sysPrompt, phrase) {
