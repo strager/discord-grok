@@ -1,6 +1,7 @@
 package main
 
 import (
+	"regexp"
 	"sort"
 	"strings"
 
@@ -27,8 +28,9 @@ type ContextMessage struct {
 	Author        string
 	Content       string
 	Timestamp     int64
-	Images        []string // attachment URLs
-	ReplyToAuthor string   // username of the message being replied to (empty if not a reply)
+	Images        []string          // attachment URLs
+	ReplyToAuthor string            // username of the message being replied to (empty if not a reply)
+	Mentions      map[string]string // userID -> displayName for replacing mention syntax
 }
 
 // BuildContext fetches message context for a given message
@@ -120,6 +122,16 @@ func (cb *ContextBuilder) toContextMessage(msg *discordgo.Message) ContextMessag
 		replyToAuthor = msg.ReferencedMessage.Author.Username
 	}
 
+	// Build mentions map from Discord's parsed Mentions array
+	mentions := make(map[string]string)
+	for _, user := range msg.Mentions {
+		displayName := user.GlobalName
+		if displayName == "" {
+			displayName = user.Username
+		}
+		mentions[user.ID] = displayName
+	}
+
 	return ContextMessage{
 		ID:            msg.ID,
 		AuthorID:      msg.Author.ID,
@@ -128,6 +140,7 @@ func (cb *ContextBuilder) toContextMessage(msg *discordgo.Message) ContextMessag
 		Timestamp:     msg.Timestamp.Unix(),
 		Images:        images,
 		ReplyToAuthor: replyToAuthor,
+		Mentions:      mentions,
 	}
 }
 
@@ -214,7 +227,9 @@ func formatMessageXML(msg ContextMessage) string {
 	}
 
 	sb.WriteString(">")
-	sb.WriteString(escapeXMLContent(msg.Content))
+	// Replace mention syntax with @displayname before XML escaping
+	content := replaceMentions(msg.Content, msg.Mentions)
+	sb.WriteString(escapeXMLContent(content))
 
 	// Add image tags so the model knows which message contains which image
 	for _, imgURL := range msg.Images {
@@ -243,4 +258,28 @@ func escapeXMLContent(s string) string {
 	s = strings.ReplaceAll(s, "<", "&lt;")
 	s = strings.ReplaceAll(s, ">", "&gt;")
 	return s
+}
+
+// mentionRegex matches Discord user mentions in both formats:
+// <@USER_ID> (standard) and <@!USER_ID> (deprecated, but still used by desktop client)
+// See: https://github.com/discord/discord-api-docs/blob/202fe7b4e1e89cedfd59702f105f9744503e4162/docs/reference.mdx
+var mentionRegex = regexp.MustCompile(`<@!?(\d+)>`)
+
+// replaceMentions replaces Discord mention syntax with @displayname
+func replaceMentions(content string, mentions map[string]string) string {
+	return mentionRegex.ReplaceAllStringFunc(content, func(match string) string {
+		// Extract the user ID from the match
+		submatches := mentionRegex.FindStringSubmatch(match)
+		if len(submatches) < 2 {
+			return match
+		}
+		userID := submatches[1]
+
+		// Look up the display name
+		if displayName, ok := mentions[userID]; ok {
+			return "@" + displayName
+		}
+		// If not found in mentions map, keep the original
+		return match
+	})
 }

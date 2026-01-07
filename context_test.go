@@ -150,3 +150,80 @@ func TestToXMLPrompt_SystemPrompt(t *testing.T) {
 		}
 	}
 }
+
+func TestReplaceMentions(t *testing.T) {
+	tests := []struct {
+		name     string
+		content  string
+		mentions map[string]string
+		want     string
+	}{
+		{
+			name:     "standard mention format",
+			content:  "hello <@123456789>!",
+			mentions: map[string]string{"123456789": "Alice"},
+			want:     "hello @Alice!",
+		},
+		{
+			name:     "deprecated mention format with exclamation",
+			content:  "hey <@!987654321> what's up",
+			mentions: map[string]string{"987654321": "Bob"},
+			want:     "hey @Bob what's up",
+		},
+		{
+			name:     "multiple mentions",
+			content:  "<@111> and <@!222> are here",
+			mentions: map[string]string{"111": "Alice", "222": "Bob"},
+			want:     "@Alice and @Bob are here",
+		},
+		{
+			name:     "unknown mention stays unchanged",
+			content:  "hello <@999999>",
+			mentions: map[string]string{},
+			want:     "hello <@999999>",
+		},
+		{
+			name:     "no mentions",
+			content:  "just a regular message",
+			mentions: map[string]string{},
+			want:     "just a regular message",
+		},
+		{
+			name:     "mixed known and unknown mentions",
+			content:  "<@111> talked to <@999>",
+			mentions: map[string]string{"111": "Alice"},
+			want:     "@Alice talked to <@999>",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := replaceMentions(tt.content, tt.mentions)
+			if got != tt.want {
+				t.Errorf("replaceMentions() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestToXMLPrompt_WithMentions(t *testing.T) {
+	cb := &ContextBuilder{botID: "bot123"}
+	messages := []ContextMessage{
+		{
+			ID:       "msg1",
+			Author:   "strager",
+			Content:  "hey <@111222333> check this out",
+			Mentions: map[string]string{"111222333": "CoolUser"},
+		},
+	}
+
+	_, parts := cb.ToXMLPrompt(messages, "msg1")
+
+	text := parts[0].Text
+	if !strings.Contains(text, "@CoolUser") {
+		t.Errorf("mention not replaced with display name: %s", text)
+	}
+	if strings.Contains(text, "<@111222333>") || strings.Contains(text, "&lt;@111222333&gt;") {
+		t.Errorf("raw mention ID should not appear in output: %s", text)
+	}
+}
