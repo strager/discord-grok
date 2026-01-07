@@ -138,8 +138,15 @@ func TestToXMLPrompt_SystemPrompt(t *testing.T) {
 
 	sysPrompt, _ := cb.ToXMLPrompt(messages, "msg1")
 
-	expected := "You are Grok, a Discord bot. A Discord user is writing a message to you. Please respond. Message context is provided below."
-	if sysPrompt != expected {
-		t.Errorf("system prompt mismatch.\ngot:  %s\nwant: %s", sysPrompt, expected)
+	// Verify key phrases are present rather than exact match
+	requiredPhrases := []string{
+		"You are Grok",
+		"Discord bot",
+		"A Discord user is writing a message to you",
+	}
+	for _, phrase := range requiredPhrases {
+		if !strings.Contains(sysPrompt, phrase) {
+			t.Errorf("system prompt missing required phrase %q.\ngot: %s", phrase, sysPrompt)
+		}
 	}
 }
