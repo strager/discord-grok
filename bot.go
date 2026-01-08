@@ -76,7 +76,10 @@ func (b *Bot) onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) 
 	// Check rate limit
 	if !b.rateLimiter.Allow(m.Author.ID) {
 		slog.Warn("rate limited", "user", m.Author.Username)
-		b.replyWithError(m, "You're sending messages too fast. Please wait a moment.")
+		err := s.MessageReactionAdd(m.ChannelID, m.ID, "🕐")
+		if err != nil {
+			slog.Error("failed to add rate limit reaction", "error", err)
+		}
 		return
 	}
 
