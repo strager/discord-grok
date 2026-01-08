@@ -235,29 +235,44 @@ func TestToXMLPrompt_WithMentions(t *testing.T) {
 	}
 }
 
-func TestGetDisplayName(t *testing.T) {
+func TestGetMemberDisplayName(t *testing.T) {
 	tests := []struct {
 		name       string
 		user       *discordgo.User
+		member     *discordgo.Member
 		wantResult string
 	}{
 		{
-			name:       "uses GlobalName when set",
-			user:       &discordgo.User{Username: "alice123", GlobalName: "Alice"},
-			wantResult: "Alice",
+			name:       "prefers guild nick over global name",
+			user:       &discordgo.User{Username: "alice123", GlobalName: "Alice Global"},
+			member:     &discordgo.Member{Nick: "Alice Server Nick"},
+			wantResult: "Alice Server Nick",
 		},
 		{
-			name:       "falls back to Username when GlobalName is empty",
-			user:       &discordgo.User{Username: "bob456", GlobalName: ""},
-			wantResult: "bob456",
+			name:       "falls back to GlobalName when nick is empty",
+			user:       &discordgo.User{Username: "alice123", GlobalName: "Alice Global"},
+			member:     &discordgo.Member{Nick: ""},
+			wantResult: "Alice Global",
+		},
+		{
+			name:       "falls back to GlobalName when member is nil",
+			user:       &discordgo.User{Username: "alice123", GlobalName: "Alice Global"},
+			member:     nil,
+			wantResult: "Alice Global",
+		},
+		{
+			name:       "falls back to Username when both nick and GlobalName are empty",
+			user:       &discordgo.User{Username: "alice123", GlobalName: ""},
+			member:     &discordgo.Member{Nick: ""},
+			wantResult: "alice123",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := getDisplayName(tt.user)
+			got := getMemberDisplayName(tt.user, tt.member)
 			if got != tt.wantResult {
-				t.Errorf("getDisplayName() = %q, want %q", got, tt.wantResult)
+				t.Errorf("getMemberDisplayName() = %q, want %q", got, tt.wantResult)
 			}
 		})
 	}

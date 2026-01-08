@@ -1,9 +1,11 @@
 package main
 
 import (
+	"log/slog"
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -38,7 +40,12 @@ type ContextMessage struct {
 // It includes recent channel messages and follows reply chains
 func (cb *ContextBuilder) BuildContext(channelID string, triggerMsg *discordgo.Message, limit int) ([]ContextMessage, error) {
 	seen := make(map[string]bool)
-	var allMessages []ContextMessage
+	var allDiscordMsgs []*discordgo.Message
+
+	// Use guild ID from trigger message (gateway events have it, API fetches may not)
+	guildID := triggerMsg.GuildID
+
+	// === Pass 1: Collect all Discord messages ===
 
 	// Get recent channel messages
 	channelMessages, err := cb.session.ChannelMessages(channelID, limit, triggerMsg.ID, "", "")
@@ -52,20 +59,27 @@ func (cb *ContextBuilder) BuildContext(channelID string, triggerMsg *discordgo.M
 			continue
 		}
 		seen[msg.ID] = true
-		allMessages = append(allMessages, cb.toContextMessage(msg))
+		allDiscordMsgs = append(allDiscordMsgs, msg)
 	}
 
 	// Follow reply chain from the trigger message
-	replyMessages, err := cb.followReplyChain(triggerMsg, seen, 5)
-	if err != nil {
-		return nil, err
-	}
-	allMessages = append(allMessages, replyMessages...)
+	replyMsgs := cb.followReplyChainRaw(triggerMsg, seen, 5)
+	allDiscordMsgs = append(allDiscordMsgs, replyMsgs...)
 
 	// Add the trigger message itself
 	if !seen[triggerMsg.ID] {
 		seen[triggerMsg.ID] = true
-		allMessages = append(allMessages, cb.toContextMessage(triggerMsg))
+		allDiscordMsgs = append(allDiscordMsgs, triggerMsg)
+	}
+
+	// === Parallel fetch: Get all member data at once ===
+	userIDs := collectUserIDs(allDiscordMsgs)
+	memberCache := cb.fetchMembersParallel(guildID, userIDs)
+
+	// === Pass 2: Convert to ContextMessages using cache ===
+	var allMessages []ContextMessage
+	for _, msg := range allDiscordMsgs {
+		allMessages = append(allMessages, cb.toContextMessage(msg, guildID, memberCache))
 	}
 
 	// Sort by timestamp
@@ -81,36 +95,33 @@ func (cb *ContextBuilder) BuildContext(channelID string, triggerMsg *discordgo.M
 	return allMessages, nil
 }
 
-// followReplyChain recursively follows message references up to maxDepth
-func (cb *ContextBuilder) followReplyChain(msg *discordgo.Message, seen map[string]bool, maxDepth int) ([]ContextMessage, error) {
+// followReplyChainRaw recursively follows message references up to maxDepth
+// Returns raw Discord messages (member lookup happens later in parallel)
+func (cb *ContextBuilder) followReplyChainRaw(msg *discordgo.Message, seen map[string]bool, maxDepth int) []*discordgo.Message {
 	if maxDepth <= 0 || msg.MessageReference == nil {
-		return nil, nil
+		return nil
 	}
 
 	refMsgID := msg.MessageReference.MessageID
 	if refMsgID == "" || seen[refMsgID] {
-		return nil, nil
+		return nil
 	}
 
 	refMsg, err := cb.session.ChannelMessage(msg.ChannelID, refMsgID)
 	if err != nil {
 		// Message might be deleted or inaccessible
-		return nil, nil
+		return nil
 	}
 
 	seen[refMsgID] = true
-	result := []ContextMessage{cb.toContextMessage(refMsg)}
+	result := []*discordgo.Message{refMsg}
 
 	// Recursively follow the chain
-	more, err := cb.followReplyChain(refMsg, seen, maxDepth-1)
-	if err != nil {
-		return result, nil
-	}
-
-	return append(result, more...), nil
+	more := cb.followReplyChainRaw(refMsg, seen, maxDepth-1)
+	return append(result, more...)
 }
 
-func (cb *ContextBuilder) toContextMessage(msg *discordgo.Message) ContextMessage {
+func (cb *ContextBuilder) toContextMessage(msg *discordgo.Message, guildID string, memberCache map[string]*discordgo.Member) ContextMessage {
 	var images []string
 	for _, att := range msg.Attachments {
 		if isImageURL(att.ContentType) {
@@ -120,19 +131,31 @@ func (cb *ContextBuilder) toContextMessage(msg *discordgo.Message) ContextMessag
 
 	var replyToAuthor string
 	if msg.ReferencedMessage != nil && msg.ReferencedMessage.Author != nil {
-		replyToAuthor = getDisplayName(msg.ReferencedMessage.Author)
+		// Use cached member data for reply author
+		replyMember := msg.ReferencedMessage.Member
+		if replyMember == nil {
+			replyMember = memberCache[msg.ReferencedMessage.Author.ID]
+		}
+		replyToAuthor = getMemberDisplayName(msg.ReferencedMessage.Author, replyMember)
 	}
 
-	// Build mentions map from Discord's parsed Mentions array
+	// Build mentions map from Discord's parsed Mentions array using cache
 	mentions := make(map[string]string)
 	for _, user := range msg.Mentions {
-		mentions[user.ID] = getDisplayName(user)
+		member := memberCache[user.ID]
+		mentions[user.ID] = getMemberDisplayName(user, member)
+	}
+
+	// Use cached member data for author
+	member := msg.Member
+	if member == nil {
+		member = memberCache[msg.Author.ID]
 	}
 
 	return ContextMessage{
 		ID:            msg.ID,
 		AuthorID:      msg.Author.ID,
-		Author:        getDisplayName(msg.Author),
+		Author:        getMemberDisplayName(msg.Author, member),
 		Content:       msg.Content,
 		Timestamp:     msg.Timestamp.Unix(),
 		Images:        images,
@@ -149,13 +172,61 @@ func isImageURL(contentType string) bool {
 	return false
 }
 
-// getDisplayName returns the user's display name (GlobalName) if set,
-// otherwise falls back to their username.
-func getDisplayName(user *discordgo.User) string {
+// getMemberDisplayName returns the user's display name with priority:
+// guild nickname > global display name > username.
+func getMemberDisplayName(user *discordgo.User, member *discordgo.Member) string {
+	if member != nil && member.Nick != "" {
+		return member.Nick
+	}
 	if user.GlobalName != "" {
 		return user.GlobalName
 	}
 	return user.Username
+}
+
+// collectUserIDs extracts all unique user IDs from a slice of messages
+func collectUserIDs(messages []*discordgo.Message) map[string]bool {
+	userIDs := make(map[string]bool)
+	for _, msg := range messages {
+		if msg.Author != nil {
+			userIDs[msg.Author.ID] = true
+		}
+		if msg.ReferencedMessage != nil && msg.ReferencedMessage.Author != nil {
+			userIDs[msg.ReferencedMessage.Author.ID] = true
+		}
+		for _, user := range msg.Mentions {
+			userIDs[user.ID] = true
+		}
+	}
+	return userIDs
+}
+
+// fetchMembersParallel fetches member data for all user IDs concurrently
+func (cb *ContextBuilder) fetchMembersParallel(guildID string, userIDs map[string]bool) map[string]*discordgo.Member {
+	if guildID == "" || cb.session == nil {
+		return make(map[string]*discordgo.Member)
+	}
+
+	cache := make(map[string]*discordgo.Member)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	for userID := range userIDs {
+		wg.Add(1)
+		go func(uid string) {
+			defer wg.Done()
+			member, err := cb.session.GuildMember(guildID, uid)
+			if err != nil {
+				slog.Warn("GuildMember fetch failed", "guildID", guildID, "userID", uid, "error", err)
+			}
+			mu.Lock()
+			cache[uid] = member
+			mu.Unlock()
+		}(userID)
+	}
+
+	wg.Wait()
+	return cache
 }
 
 func getSystemPrompt() string {
