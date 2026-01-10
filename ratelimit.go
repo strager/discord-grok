@@ -6,8 +6,9 @@ import (
 )
 
 type RateLimiter struct {
-	requestsPerMinute int
-	users             sync.Map // map[string]*userState
+	users          sync.Map // map[string]*userState
+	globalMu       sync.Mutex
+	globalRequests []time.Time
 }
 
 type userState struct {
@@ -15,10 +16,8 @@ type userState struct {
 	requests []time.Time
 }
 
-func NewRateLimiter(requestsPerMinute int) *RateLimiter {
-	rl := &RateLimiter{
-		requestsPerMinute: requestsPerMinute,
-	}
+func NewRateLimiter() *RateLimiter {
+	rl := &RateLimiter{}
 	go rl.cleanup()
 	return rl
 }
@@ -26,30 +25,46 @@ func NewRateLimiter(requestsPerMinute int) *RateLimiter {
 // Allow checks if the user can make a request
 func (rl *RateLimiter) Allow(userID string) bool {
 	now := time.Now()
-	windowStart := now.Add(-time.Minute)
+	userWindowStart := now.Add(-5 * time.Minute)
+	globalWindowStart := now.Add(-10 * time.Minute)
 
+	// Check global limit first (5 per 10 minutes)
+	rl.globalMu.Lock()
+	validGlobal := make([]time.Time, 0, len(rl.globalRequests))
+	for _, t := range rl.globalRequests {
+		if t.After(globalWindowStart) {
+			validGlobal = append(validGlobal, t)
+		}
+	}
+	rl.globalRequests = validGlobal
+	if len(rl.globalRequests) >= 5 {
+		rl.globalMu.Unlock()
+		return false
+	}
+
+	// Check per-user limit (1 per 5 minutes)
 	val, _ := rl.users.LoadOrStore(userID, &userState{})
 	state := val.(*userState)
 
 	state.mu.Lock()
-	defer state.mu.Unlock()
-
-	// Remove old requests outside the window
-	validRequests := make([]time.Time, 0, len(state.requests))
+	validUser := make([]time.Time, 0, len(state.requests))
 	for _, t := range state.requests {
-		if t.After(windowStart) {
-			validRequests = append(validRequests, t)
+		if t.After(userWindowStart) {
+			validUser = append(validUser, t)
 		}
 	}
-	state.requests = validRequests
-
-	// Check if under limit
-	if len(state.requests) >= rl.requestsPerMinute {
+	state.requests = validUser
+	if len(state.requests) >= 1 {
+		state.mu.Unlock()
+		rl.globalMu.Unlock()
 		return false
 	}
 
-	// Record this request
+	// Record this request in both trackers
 	state.requests = append(state.requests, now)
+	state.mu.Unlock()
+	rl.globalRequests = append(rl.globalRequests, now)
+	rl.globalMu.Unlock()
 	return true
 }
 
@@ -57,11 +72,23 @@ func (rl *RateLimiter) Allow(userID string) bool {
 func (rl *RateLimiter) cleanup() {
 	ticker := time.NewTicker(5 * time.Minute)
 	for range ticker.C {
-		cutoff := time.Now().Add(-5 * time.Minute)
+		cutoff := time.Now().Add(-10 * time.Minute)
+
+		// Clean up global requests
+		rl.globalMu.Lock()
+		validGlobal := make([]time.Time, 0, len(rl.globalRequests))
+		for _, t := range rl.globalRequests {
+			if t.After(cutoff) {
+				validGlobal = append(validGlobal, t)
+			}
+		}
+		rl.globalRequests = validGlobal
+		rl.globalMu.Unlock()
+
+		// Clean up inactive users
 		rl.users.Range(func(key, value any) bool {
 			state := value.(*userState)
 			state.mu.Lock()
-			// If all requests are old, remove this user
 			allOld := true
 			for _, t := range state.requests {
 				if t.After(cutoff) {

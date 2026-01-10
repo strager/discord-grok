@@ -15,7 +15,3 @@ oauth_port = 8080
 
 # Enable debug logging
 debug = false
-
-[rate_limit]
-# Max requests per user per minute
-requests_per_minute = 10

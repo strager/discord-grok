@@ -33,7 +33,7 @@ func main() {
 
 	// Initialize components
 	grokClient := NewGrokClient(cfg.XAIAPIKey)
-	rateLimiter := NewRateLimiter(cfg.RateLimit.RequestsPerMinute)
+	rateLimiter := NewRateLimiter()
 
 	// Create and start bot
 	bot, err := NewBot(cfg.DiscordToken, grokClient, rateLimiter, cfg.ContextMessages)
