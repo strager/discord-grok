@@ -14,24 +14,26 @@ const (
 )
 
 type Bot struct {
-	session        *discordgo.Session
-	grokClient     *GrokClient
-	rateLimiter    *RateLimiter
-	contextBuilder *ContextBuilder
-	contextLimit   int
+	session         *discordgo.Session
+	grokClient      *GrokClient
+	rateLimiter     *RateLimiter
+	contextBuilder  *ContextBuilder
+	contextLimit    int
+	promptLogWriter *PromptLogWriter
 }
 
-func NewBot(token string, grokClient *GrokClient, rateLimiter *RateLimiter, contextLimit int) (*Bot, error) {
+func NewBot(token string, grokClient *GrokClient, rateLimiter *RateLimiter, contextLimit int, promptLogWriter *PromptLogWriter) (*Bot, error) {
 	session, err := discordgo.New("Bot " + token)
 	if err != nil {
 		return nil, err
 	}
 
 	bot := &Bot{
-		session:      session,
-		grokClient:   grokClient,
-		rateLimiter:  rateLimiter,
-		contextLimit: contextLimit,
+		session:         session,
+		grokClient:      grokClient,
+		rateLimiter:     rateLimiter,
+		contextLimit:    contextLimit,
+		promptLogWriter: promptLogWriter,
 	}
 
 	session.AddHandler(bot.onMessageCreate)
@@ -111,7 +113,7 @@ func (b *Bot) onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) 
 	}
 
 	// Convert to XML prompt format
-	systemPrompt, userContent := b.contextBuilder.ToXMLPrompt(contextMessages, m.ID)
+	systemPrompt, userContent := b.contextBuilder.ToXMLPrompt(contextMessages, m.ID, time.Now())
 	grokMessages := []ChatMessage{
 		{Role: "system", Content: systemPrompt},
 		{Role: "user", Content: userContent},
@@ -144,6 +146,14 @@ func (b *Bot) onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) 
 	if len(response) > maxResponseBytes {
 		slog.Debug("response still exceeded byte limit after retry, truncating", "bytes", len(response))
 		response = truncateToByteLimit(response, maxResponseBytes, truncateSuffix)
+	}
+
+	// Log prompt and response
+	if b.promptLogWriter != nil {
+		entry := NewPromptLogEntry(time.Now(), m.ID, contextMessages, systemPrompt, userContent, response)
+		if err := b.promptLogWriter.Write(entry); err != nil {
+			slog.Error("failed to write prompt log", "error", err)
+		}
 	}
 
 	// Reply to the message

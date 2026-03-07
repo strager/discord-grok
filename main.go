@@ -10,6 +10,11 @@ import (
 )
 
 func main() {
+	if len(os.Args) >= 2 && os.Args[1] == "replay" {
+		runReplayCommand(os.Args[2:])
+		return
+	}
+
 	configPath := flag.String("config", "config.toml", "path to config file")
 	flag.Parse()
 
@@ -35,8 +40,19 @@ func main() {
 	grokClient := NewGrokClient(cfg.XAIAPIKey)
 	rateLimiter := NewRateLimiter()
 
+	// Initialize prompt log writer if configured
+	var promptLogWriter *PromptLogWriter
+	if cfg.PromptLogDir != "" {
+		promptLogWriter, err = NewPromptLogWriter(cfg.PromptLogDir)
+		if err != nil {
+			slog.Error("failed to create prompt log writer", "error", err)
+			os.Exit(1)
+		}
+		slog.Info("prompt logging enabled", "dir", cfg.PromptLogDir)
+	}
+
 	// Create and start bot
-	bot, err := NewBot(cfg.DiscordToken, grokClient, rateLimiter, cfg.ContextMessages)
+	bot, err := NewBot(cfg.DiscordToken, grokClient, rateLimiter, cfg.ContextMessages, promptLogWriter)
 	if err != nil {
 		slog.Error("failed to create bot", "error", err)
 		os.Exit(1)

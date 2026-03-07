@@ -26,14 +26,14 @@ func NewContextBuilder(session *discordgo.Session, botID string) *ContextBuilder
 
 // ContextMessage represents a message with its metadata for context
 type ContextMessage struct {
-	ID            string
-	AuthorID      string
-	Author        string
-	Content       string
-	Timestamp     int64
-	Images        []string          // attachment URLs
-	ReplyToAuthor string            // username of the message being replied to (empty if not a reply)
-	Mentions      map[string]string // userID -> displayName for replacing mention syntax
+	ID            string            `json:"id"`
+	AuthorID      string            `json:"author_id"`
+	Author        string            `json:"author"`
+	Content       string            `json:"content"`
+	Timestamp     int64             `json:"timestamp"`
+	Images        []string          `json:"images"`
+	ReplyToAuthor string            `json:"reply_to_author"`
+	Mentions      map[string]string `json:"mentions"`
 }
 
 // BuildContext fetches message context for a given message
@@ -229,8 +229,8 @@ func (cb *ContextBuilder) fetchMembersParallel(guildID string, userIDs map[strin
 	return cache
 }
 
-func getSystemPrompt() string {
-	currentDate := time.Now().Format("January 2, 2006 (MST)")
+func getSystemPrompt(now time.Time) string {
+	currentDate := now.Format("January 2, 2006 (MST)")
 	return `You are Grok, a Discord bot created by strager (this server's admin and owner).
 
 Abilities: You are able to reply and read images in your context (provided below). You are not able to search for messages or reference messages from other channels. You are not able to generate images.
@@ -250,7 +250,7 @@ A Discord user is writing a message to you. Use the <context> section to underst
 // ToXMLPrompt converts context messages to the XML prompt format
 // triggerMsgID identifies which message triggered the bot (should respond to this one)
 // Returns system prompt and user message content (as []ContentPart to support images)
-func (cb *ContextBuilder) ToXMLPrompt(messages []ContextMessage, triggerMsgID string) (string, []ContentPart) {
+func (cb *ContextBuilder) ToXMLPrompt(messages []ContextMessage, triggerMsgID string, now time.Time) (string, []ContentPart) {
 	var triggerMsg *ContextMessage
 	var contextMsgs []ContextMessage
 
@@ -298,7 +298,7 @@ func (cb *ContextBuilder) ToXMLPrompt(messages []ContextMessage, triggerMsgID st
 		}
 	}
 
-	return getSystemPrompt(), parts
+	return getSystemPrompt(now), parts
 }
 
 // formatMessageXML formats a single message as XML

@@ -15,3 +15,6 @@ oauth_port = 8080
 
 # Enable debug logging
 debug = false
+
+# Directory for prompt log files (empty = disabled)
+# prompt_log_dir = "logs"

@@ -14,7 +14,7 @@ func TestToXMLPrompt_SingleTriggerOnly(t *testing.T) {
 		{ID: "msg1", Author: "strager", Content: "@grok hello"},
 	}
 
-	sysPrompt, parts := cb.ToXMLPrompt(messages, "msg1")
+	sysPrompt, parts := cb.ToXMLPrompt(messages, "msg1", time.Now())
 
 	if !strings.Contains(sysPrompt, "You are Grok") {
 		t.Errorf("unexpected system prompt: %s", sysPrompt)
@@ -44,7 +44,7 @@ func TestToXMLPrompt_TriggerWithContext(t *testing.T) {
 		{ID: "msg3", Author: "strager", Content: "@grok hello"},
 	}
 
-	_, parts := cb.ToXMLPrompt(messages, "msg3")
+	_, parts := cb.ToXMLPrompt(messages, "msg3", time.Now())
 
 	text := parts[0].Text
 
@@ -79,7 +79,7 @@ func TestToXMLPrompt_BotMessagesInContext(t *testing.T) {
 		{ID: "msg3", Author: "strager", Content: "@grok hello"},
 	}
 
-	_, parts := cb.ToXMLPrompt(messages, "msg3")
+	_, parts := cb.ToXMLPrompt(messages, "msg3", time.Now())
 
 	text := parts[0].Text
 
@@ -96,7 +96,7 @@ func TestToXMLPrompt_WithImages(t *testing.T) {
 		{ID: "msg2", Author: "strager", Content: "@grok rate this", Images: []string{"https://example.com/img2.jpg"}},
 	}
 
-	_, parts := cb.ToXMLPrompt(messages, "msg2")
+	_, parts := cb.ToXMLPrompt(messages, "msg2", time.Now())
 
 	// Should have text part + 2 image parts
 	if len(parts) != 3 {
@@ -128,7 +128,7 @@ func TestToXMLPrompt_WithReplyTo(t *testing.T) {
 		{ID: "msg2", Author: "strager", Content: "@grok what did alice say", ReplyToAuthor: "alice"},
 	}
 
-	_, parts := cb.ToXMLPrompt(messages, "msg2")
+	_, parts := cb.ToXMLPrompt(messages, "msg2", time.Now())
 
 	text := parts[0].Text
 	if !strings.Contains(text, `replyto="alice"`) {
@@ -142,7 +142,7 @@ func TestToXMLPrompt_SystemPrompt(t *testing.T) {
 		{ID: "msg1", Author: "strager", Content: "@grok hi"},
 	}
 
-	sysPrompt, _ := cb.ToXMLPrompt(messages, "msg1")
+	sysPrompt, _ := cb.ToXMLPrompt(messages, "msg1", time.Now())
 
 	// Verify key phrases are present rather than exact match
 	requiredPhrases := []string{
@@ -224,7 +224,7 @@ func TestToXMLPrompt_WithMentions(t *testing.T) {
 		},
 	}
 
-	_, parts := cb.ToXMLPrompt(messages, "msg1")
+	_, parts := cb.ToXMLPrompt(messages, "msg1", time.Now())
 
 	text := parts[0].Text
 	if !strings.Contains(text, "@CoolUser") {
@@ -285,7 +285,7 @@ func TestToXMLPrompt_AuthorUsesDisplayName(t *testing.T) {
 		messages := []ContextMessage{
 			{ID: "msg1", Author: "Cool Display Name", Content: "hello"},
 		}
-		_, parts := cb.ToXMLPrompt(messages, "msg1")
+		_, parts := cb.ToXMLPrompt(messages, "msg1", time.Now())
 		text := parts[0].Text
 
 		if !strings.Contains(text, `author="Cool Display Name"`) {
@@ -297,7 +297,7 @@ func TestToXMLPrompt_AuthorUsesDisplayName(t *testing.T) {
 		messages := []ContextMessage{
 			{ID: "msg1", Author: "username123", Content: "hello"},
 		}
-		_, parts := cb.ToXMLPrompt(messages, "msg1")
+		_, parts := cb.ToXMLPrompt(messages, "msg1", time.Now())
 		text := parts[0].Text
 
 		if !strings.Contains(text, `author="username123"`) {
@@ -314,7 +314,7 @@ func TestToXMLPrompt_ReplyToUsesDisplayName(t *testing.T) {
 			{ID: "msg1", Author: "alice", Content: "original message"},
 			{ID: "msg2", Author: "bob", Content: "reply", ReplyToAuthor: "Alice Display Name"},
 		}
-		_, parts := cb.ToXMLPrompt(messages, "msg2")
+		_, parts := cb.ToXMLPrompt(messages, "msg2", time.Now())
 		text := parts[0].Text
 
 		if !strings.Contains(text, `replyto="Alice Display Name"`) {
@@ -327,7 +327,7 @@ func TestToXMLPrompt_ReplyToUsesDisplayName(t *testing.T) {
 			{ID: "msg1", Author: "alice", Content: "original message"},
 			{ID: "msg2", Author: "bob", Content: "reply", ReplyToAuthor: "alice_username"},
 		}
-		_, parts := cb.ToXMLPrompt(messages, "msg2")
+		_, parts := cb.ToXMLPrompt(messages, "msg2", time.Now())
 		text := parts[0].Text
 
 		if !strings.Contains(text, `replyto="alice_username"`) {
@@ -337,9 +337,9 @@ func TestToXMLPrompt_ReplyToUsesDisplayName(t *testing.T) {
 }
 
 func TestGetSystemPrompt_ContainsCurrentDate(t *testing.T) {
-	// Note: This test does not handle the edge case of time changing during the test run.
-	expectedDate := time.Now().Format("January 2, 2006 (MST)")
-	sysPrompt := getSystemPrompt()
+	now := time.Now()
+	expectedDate := now.Format("January 2, 2006 (MST)")
+	sysPrompt := getSystemPrompt(now)
 
 	if !strings.Contains(sysPrompt, "Current date:") {
 		t.Error("system prompt should contain 'Current date:'")
