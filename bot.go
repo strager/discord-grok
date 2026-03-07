@@ -35,7 +35,7 @@ func NewBot(token string, grokClient *GrokClient, rateLimiter *RateLimiter, cont
 	}
 
 	session.AddHandler(bot.onMessageCreate)
-	session.Identify.Intents = discordgo.IntentsGuildMessages | discordgo.IntentsMessageContent
+	session.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMessages | discordgo.IntentsMessageContent
 
 	return bot, nil
 }
@@ -157,6 +157,19 @@ func (b *Bot) isMentioned(m *discordgo.Message) bool {
 	for _, user := range m.Mentions {
 		if user.ID == b.session.State.User.ID {
 			return true
+		}
+	}
+	if len(m.MentionRoles) > 0 && m.GuildID != "" {
+		member, err := b.session.State.Member(m.GuildID, b.session.State.User.ID)
+		if err != nil {
+			return false
+		}
+		for _, mentionedRole := range m.MentionRoles {
+			for _, botRole := range member.Roles {
+				if mentionedRole == botRole {
+					return true
+				}
+			}
 		}
 	}
 	return false
